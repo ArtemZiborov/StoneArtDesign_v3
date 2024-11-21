@@ -1,5 +1,8 @@
+import { useState, useEffect } from "react";
 import PageNav from "../components/PageNav";
-import { useState } from "react";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getFirestore, collection, addDoc } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 function Contact() {
   const [formData, setFormData] = useState({
@@ -7,23 +10,61 @@ function Contact() {
     email: "",
     telephone: "",
     message: "",
+    file: null,
   });
 
+  const [uploading, setUploading] = useState(false);
+
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, files } = e.target;
     setFormData((prevData) => ({
       ...prevData,
-      [name]: value,
+      [name]: files ? files[0] : value,
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Here you would typically send the form data to a server or email service
-    // For this example, we'll just log it to the console
-    console.log("Form submitted:", formData);
+    setUploading(true);
+
+    const storage = getStorage();
+    const db = getFirestore();
+    const functions = getFunctions();
+
+    let fileURL = "";
+
+    if (formData.file) {
+      const storageRef = ref(storage, `uploads/${formData.file.name}`);
+      await uploadBytes(storageRef, formData.file);
+      fileURL = await getDownloadURL(storageRef);
+    }
+
+    await addDoc(collection(db, "contacts"), {
+      name: formData.name,
+      email: formData.email,
+      telephone: formData.telephone,
+      message: formData.message,
+      fileURL,
+    });
+
+    const sendEmail = httpsCallable(functions, "sendEmail");
+    await sendEmail({
+      name: formData.name,
+      email: formData.email,
+      telephone: formData.telephone,
+      message: formData.message,
+      fileURL,
+    });
+
     alert("Your message has been sent!");
-    setFormData({ name: "", email: "", telephone: "", message: "" });
+    setFormData({
+      name: "",
+      email: "",
+      telephone: "",
+      message: "",
+      file: null,
+    });
+    setUploading(false);
   };
 
   return (
@@ -94,11 +135,24 @@ function Contact() {
                 required
               ></textarea>
             </div>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2" htmlFor="file">
+                Upload File
+              </label>
+              <input
+                type="file"
+                id="file"
+                name="file"
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded"
+              />
+            </div>
             <button
               type="submit"
               className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
+              disabled={uploading}
             >
-              Send Message
+              {uploading ? "Sending..." : "Send Message"}
             </button>
           </form>
         </div>
